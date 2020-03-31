@@ -162,15 +162,31 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
                 continue;
             }
 
-            /* We try a rename, it's an atomic operation, and avoid locking the file */
+            // Silence error reporting
+            set_error_handler(function ($type, $msg) use (&$error) { $error = $msg; });
+            if (!$handle = fopen($file, 'r+') ?: fopen($file, 'r')) {
+                if ($handle = fopen($file, 'x')) {
+                    chmod($file, 0666);
+                } elseif (!$handle = fopen($file, 'r+') ?: fopen($file, 'r')) {
+                    usleep(100); // Give some time for chmod() to complete
+                    $handle = fopen($file, 'r+') ?: fopen($file, 'r');
+                }
+            }
+            restore_error_handler();
+
+            if (!flock($handle, LOCK_EX )) {
+                /* This message has just been catched by another process */
+                continue;
+            }
             if (rename($file, $file.'.sending')) {
                 $message = unserialize(file_get_contents($file.'.sending'));
 
                 $count += $transport->send($message, $failedRecipients);
-
+                fclose ($handle);
                 unlink($file.'.sending');
             } else {
                 /* This message has just been catched by another process */
+                fclose ($handle);
                 continue;
             }
 
