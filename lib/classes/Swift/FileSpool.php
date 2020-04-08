@@ -161,7 +161,7 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
             if (substr($file, -8) != '.message') {
                 continue;
             }
-            if (!$handle = fopen($file, 'r+')) {
+            if (!$handle = @fopen($file, 'r+')) {
                 continue;
             }
             if (!flock($handle, LOCK_EX | LOCK_NB )) {
