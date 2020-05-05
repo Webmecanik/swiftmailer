@@ -120,12 +120,19 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
     {
         foreach (new DirectoryIterator($this->_path) as $file) {
             $file = $file->getRealPath();
-
-            if (substr($file, -16) == '.message.sending') {
+            if ('.message.sending' == substr($file, -16)) {
                 $lockedtime = filectime($file);
-                if ((time() - $lockedtime) > $timeout) {
-                    rename($file, substr($file, 0, -8));
+                if (!$handle = @fopen($file, 'r+')) {
+                    continue;
                 }
+                if (!flock($handle, LOCK_EX | LOCK_NB)) {
+                    /* This message has just been catched by another process */
+                    continue;
+                }
+                if ((time() - $lockedtime) > $timeout) {
+                    rename($file, substr($file, 0, -8),$handle);
+                }
+                fclose($handle);
             }
         }
     }
