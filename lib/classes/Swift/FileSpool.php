@@ -16,6 +16,7 @@
  */
 class Swift_FileSpool extends Swift_ConfigurableSpool
 {
+
     /** The spool directory */
     private $path;
 
@@ -85,17 +86,17 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
      *
      * @param Swift_Mime_SimpleMessage $message The message to store
      *
+     * @return bool
      * @throws Swift_IoException
      *
-     * @return bool
      */
     public function queueMessage(Swift_Mime_SimpleMessage $message)
     {
         $ser = serialize($message);
-        $fileName = $this->path.'/'.$this->getRandomString(10);
+        $fileName = $this->path . '/' . $this->getRandomString(10);
         for ($i = 0; $i < $this->retryLimit; ++$i) {
             /* We try an exclusive creation of the file. This is an atomic operation, it avoid locking mechanism */
-            $fp = @fopen($fileName.'.message', 'xb');
+            $fp = @fopen($fileName . '.message', 'xb');
             if (false !== $fp) {
                 if (false === fwrite($fp, $ser)) {
                     return false;
@@ -123,18 +124,27 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
 
             if ('.message.sending' == substr($file, -16)) {
                 $lockedtime = filectime($file);
-                if ((time() - $lockedtime) > $timeout) {
-                    rename($file, substr($file, 0, -8));
+                if (!$handle = @fopen($file, 'r+')) {
+                    continue;
                 }
+                if (!flock($handle, LOCK_EX | LOCK_NB)) {
+                    /* This message has just been catched by another process */
+                    continue;
+                }
+                if ((time() - $lockedtime) > $timeout) {
+                    rename($file, substr($file, 0, -8),$handle);
+                }
+                fclose($handle);
             }
+
         }
     }
 
     /**
      * Sends messages using the given transport instance.
      *
-     * @param Swift_Transport $transport        A transport instance
-     * @param string[]        $failedRecipients An array of failures by-reference
+     * @param Swift_Transport $transport A transport instance
+     * @param string[] $failedRecipients An array of failures by-reference
      *
      * @return int The number of sent e-mail's
      */
@@ -152,7 +162,7 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
             }
         }
 
-        $failedRecipients = (array) $failedRecipients;
+        $failedRecipients = (array)$failedRecipients;
         $count = 0;
         $time = time();
         foreach ($directoryIterator as $file) {
@@ -166,20 +176,20 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
                 continue;
             }
 
-            if (!flock($handle, LOCK_EX | LOCK_NB )) {
+            if (!flock($handle, LOCK_EX | LOCK_NB)) {
                 /* This message has just been catched by another process */
                 continue;
             }
-            if (rename($file, $file.'.sending')) {
-                $message = unserialize(file_get_contents($file.'.sending'));
+            if (rename($file, $file . '.sending', $handle)) {
+                $message = unserialize(file_get_contents($file . '.sending'));
 
 
                 $count += $transport->send($message, $failedRecipients);
 
-                unlink($file.'.sending');
+                unlink($file . '.sending');
             }
 
-            fclose ($handle);
+            fclose($handle);
 
             if ($this->getMessageLimit() && $count >= $this->getMessageLimit()) {
                 break;
