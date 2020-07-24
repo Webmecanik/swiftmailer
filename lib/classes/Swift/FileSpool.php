@@ -123,9 +123,17 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
 
             if ('.message.sending' == substr($file, -16)) {
                 $lockedtime = filectime($file);
-                if ((time() - $lockedtime) > $timeout) {
-                    rename($file, substr($file, 0, -8));
+                if (!$handle = @fopen($file, 'r+')) {
+                    continue;
                 }
+                if (!flock($handle, LOCK_EX | LOCK_NB)) {
+                    /* This message has just been catched by another process */
+                    continue;
+                }
+                if ((time() - $lockedtime) > $timeout) {
+                    rename($file, substr($file, 0, -8),$handle);
+                }
+                fclose($handle);
             }
         }
     }
@@ -161,18 +169,23 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
             if ('.message' != substr($file, -8)) {
                 continue;
             }
-
-            /* We try a rename, it's an atomic operation, and avoid locking the file */
+            if (!$handle = @fopen($file, 'r+')) {
+                continue;
+            }
+            if (!flock($handle, LOCK_EX | LOCK_NB )) {
+                /* This message has just been catched by another process */
+                continue;
+            }
             if (rename($file, $file.'.sending')) {
                 $message = unserialize(file_get_contents($file.'.sending'));
+
 
                 $count += $transport->send($message, $failedRecipients);
 
                 unlink($file.'.sending');
-            } else {
-                /* This message has just been catched by another process */
-                continue;
             }
+
+            fclose ($handle);
 
             if ($this->getMessageLimit() && $count >= $this->getMessageLimit()) {
                 break;
@@ -182,7 +195,6 @@ class Swift_FileSpool extends Swift_ConfigurableSpool
                 break;
             }
         }
-
         return $count;
     }
 
